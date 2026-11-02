@@ -1,0 +1,10 @@
+{
+  "name": "程閱票務核銷管理系統",
+  "description": "具備前台購票與親友贈券、後台統計分析與防偽驗票閘口的完整全端票務管理核銷系統。採用 AES-256-CBC 加密個資、HMAC 防偽條碼認證、及整合 Gemini AI 智慧撰稿助理。",
+  "requestFramePermissions": [
+    "camera"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
