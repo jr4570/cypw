@@ -6,6 +6,7 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { User, ShieldCheck, Key, Phone, Mail, CheckCircle, RefreshCw, LogOut, Cpu, Trash2, AlertTriangle, Clock, RotateCcw } from 'lucide-react';
+import { apiFetch } from '../utils/apiInterceptor';
 
 interface UserSettingsProps {
   user: {
@@ -50,7 +51,7 @@ export default function UserSettings({ user, token, onLogout, onUpdateProfile }:
     setDeletingLoading(true);
 
     try {
-      const res = await fetch('/api/auth/request-delete', {
+      const res = await apiFetch('/api/auth/request-delete', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -58,7 +59,13 @@ export default function UserSettings({ user, token, onLogout, onUpdateProfile }:
         }
       });
 
-      const data = await res.json();
+      let data: any = {};
+      try {
+        data = await res.json();
+      } catch {
+        data = { error: '解析伺服器回應失敗' };
+      }
+
       if (!res.ok) {
         throw new Error(data.error || '申請刪除帳號失敗');
       }
@@ -79,7 +86,7 @@ export default function UserSettings({ user, token, onLogout, onUpdateProfile }:
     setDeletingLoading(true);
 
     try {
-      const res = await fetch('/api/auth/cancel-delete', {
+      const res = await apiFetch('/api/auth/cancel-delete', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -87,7 +94,13 @@ export default function UserSettings({ user, token, onLogout, onUpdateProfile }:
         }
       });
 
-      const data = await res.json();
+      let data: any = {};
+      try {
+        data = await res.json();
+      } catch {
+        data = { error: '解析伺服器回應失敗' };
+      }
+
       if (!res.ok) {
         throw new Error(data.error || '取消刪除申請失敗');
       }
@@ -108,7 +121,7 @@ export default function UserSettings({ user, token, onLogout, onUpdateProfile }:
     setUpdatingProfile(true);
 
     try {
-      const res = await fetch('/api/auth/update', {
+      const res = await apiFetch('/api/auth/update', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -117,7 +130,13 @@ export default function UserSettings({ user, token, onLogout, onUpdateProfile }:
         body: JSON.stringify({ name, phone })
       });
 
-      const data = await res.json();
+      let data: any = {};
+      try {
+        data = await res.json();
+      } catch {
+        data = { error: '解析伺服器回應失敗' };
+      }
+
       if (!res.ok) {
         throw new Error(data.error || '更新個人資料失敗');
       }
@@ -149,7 +168,7 @@ export default function UserSettings({ user, token, onLogout, onUpdateProfile }:
     setUpdatingPassword('changing');
 
     try {
-      const res = await fetch('/api/auth/change-password', {
+      const res = await apiFetch('/api/auth/change-password', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -158,7 +177,13 @@ export default function UserSettings({ user, token, onLogout, onUpdateProfile }:
         body: JSON.stringify({ currentPassword, newPassword })
       });
 
-      const data = await res.json();
+      let data: any = {};
+      try {
+        data = await res.json();
+      } catch {
+        data = { error: '解析伺服器回應失敗' };
+      }
+
       if (!res.ok) {
         throw new Error(data.error || '變更密碼失敗');
       }

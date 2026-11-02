@@ -400,6 +400,10 @@ loadDatabase();
 // Initialize Express
 const app = express();
 app.use(express.json());
+app.use((req, res, next) => {
+  res.setHeader("X-StarPass-Backend", "express-server");
+  next();
+});
 
 // API: Setup Gemini conditionally to avoid console warnings in local setup if not provided
 const ai = process.env.GEMINI_API_KEY

@@ -7,6 +7,7 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Calendar, MapPin, Tag, Heart, ShoppingBag, ArrowRight } from 'lucide-react';
 import { EventSetting } from '../types';
+import { apiFetch } from '../utils/apiInterceptor';
 
 interface UserFavoritesProps {
   token?: string;
@@ -36,10 +37,14 @@ export default function UserFavorites({ token, onViewEvents, onBookEvent, onLogi
   const fetchEvents = async () => {
     try {
       setLoading(true);
-      const res = await fetch('/api/events');
+      const res = await apiFetch('/api/events');
       if (res.ok) {
-        const data = await res.json();
-        setEvents(data);
+        try {
+          const data = await res.json();
+          setEvents(Array.isArray(data) ? data : []);
+        } catch {
+          setEvents([]);
+        }
       }
     } catch (err) {
       console.error("Error fetching events:", err);

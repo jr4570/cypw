@@ -12,6 +12,7 @@ import {
 import { Html5Qrcode } from 'html5-qrcode';
 import { EventSetting, CheckInLog } from '../types';
 import { cleanErrorMessage } from '../utils/formatError';
+import { apiFetch } from '../utils/apiInterceptor';
 
 interface AdminScanProps {
   token: string;
@@ -70,10 +71,14 @@ export default function AdminScan({ token }: AdminScanProps) {
 
   const fetchEvents = async () => {
     try {
-      const res = await fetch('/api/events');
+      const res = await apiFetch('/api/events');
       if (res.ok) {
-        const data = await res.json();
-        setEvents(data);
+        try {
+          const data = await res.json();
+          setEvents(Array.isArray(data) ? data : []);
+        } catch {
+          setEvents([]);
+        }
       }
     } catch (e) {
       console.error("Error loading events:", e);
@@ -86,12 +91,16 @@ export default function AdminScan({ token }: AdminScanProps) {
       const url = selectedEventId && selectedEventId !== 'all'
         ? `/api/admin/logs?eventId=${selectedEventId}&limit=100`
         : `/api/admin/logs?limit=100`;
-      const res = await fetch(url, {
+      const res = await apiFetch(url, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       if (res.ok) {
-        const data = await res.json();
-        setRecentLogs(data);
+        try {
+          const data = await res.json();
+          setRecentLogs(Array.isArray(data) ? data : []);
+        } catch {
+          setRecentLogs([]);
+        }
       }
     } catch (e) {
       console.error("Error loading logs:", e);
@@ -130,7 +139,7 @@ export default function AdminScan({ token }: AdminScanProps) {
         ? `/api/admin/logs/export-csv?eventId=${selectedEventId}`
         : `/api/admin/logs/export-csv`;
 
-      const res = await fetch(url, {
+      const res = await apiFetch(url, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
 
@@ -404,7 +413,7 @@ export default function AdminScan({ token }: AdminScanProps) {
     setScanResult(null);
 
     try {
-      const res = await fetch('/api/tickets/verify', {
+      const res = await apiFetch('/api/tickets/verify', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

@@ -7,6 +7,7 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Settings, CheckSquare, XSquare, AlertTriangle, ShieldCheck, Users, Trash2, ToggleLeft, ToggleRight, Info, Sparkles, RefreshCw, Star, Lock, Unlock } from 'lucide-react';
 import { EventSetting } from '../types';
+import { apiFetch } from '../utils/apiInterceptor';
 
 interface SuperAdminSettingsProps {
   token: string;
@@ -61,10 +62,21 @@ export default function SuperAdminSettings({ token, onSettingsUpdated }: SuperAd
   const fetchSettings = async () => {
     try {
       setLoadingSettings(true);
-      const res = await fetch('/api/settings');
+      const res = await apiFetch('/api/settings');
       if (res.ok) {
-        const data = await res.json();
-        setSysSettings(data);
+        try {
+          const data = await res.json();
+          if (data && typeof data === 'object' && data.systemName) {
+            setSysSettings(prev => ({
+              ...prev,
+              ...data,
+              demoMode: data.demoMode !== false,
+              demoLocked: data.demoLocked ?? true
+            }));
+          }
+        } catch {
+          // ignore
+        }
       }
     } catch (err) {
       console.error("Error fetching settings:", err);
@@ -79,7 +91,7 @@ export default function SuperAdminSettings({ token, onSettingsUpdated }: SuperAd
     setSavingSettings(true);
 
     try {
-      const res = await fetch('/api/settings', {
+      const res = await apiFetch('/api/settings', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -88,16 +100,18 @@ export default function SuperAdminSettings({ token, onSettingsUpdated }: SuperAd
         body: JSON.stringify(sysSettings)
       });
 
-      const data = await res.json();
+      let data: any = {};
+      try { data = await res.json(); } catch { data = {}; }
       if (!res.ok) {
         throw new Error(data.error || '儲存設定失敗');
       }
 
       setSaveSuccess('🎉 系統全域設定已成功儲存與發布！');
-      setSysSettings(data.settings);
+      if (data.settings) {
+        setSysSettings(data.settings);
+        document.title = data.settings.systemName;
+      }
       
-      // Update HTML Document title on the fly if systemName changes
-      document.title = data.settings.systemName;
       if (onSettingsUpdated) {
         onSettingsUpdated();
       }
@@ -113,10 +127,14 @@ export default function SuperAdminSettings({ token, onSettingsUpdated }: SuperAd
   const fetchEvents = async () => {
     try {
       setLoadingEvents(true);
-      const res = await fetch('/api/events');
+      const res = await apiFetch('/api/events');
       if (res.ok) {
-        const data = await res.json();
-        setEvents(data);
+        try {
+          const data = await res.json();
+          setEvents(Array.isArray(data) ? data : []);
+        } catch {
+          setEvents([]);
+        }
       }
     } catch (err) {
       console.error("Error fetching events:", err);
@@ -128,14 +146,18 @@ export default function SuperAdminSettings({ token, onSettingsUpdated }: SuperAd
   const fetchUsers = async () => {
     try {
       setLoadingUsers(true);
-      const res = await fetch('/api/admin/users', {
+      const res = await apiFetch('/api/admin/users', {
         headers: {
           'Authorization': `Bearer ${token}`
         }
       });
       if (res.ok) {
-        const data = await res.json();
-        setUsers(data);
+        try {
+          const data = await res.json();
+          setUsers(Array.isArray(data) ? data : []);
+        } catch {
+          setUsers([]);
+        }
       }
     } catch (err) {
       console.error("Error fetching users:", err);
@@ -147,7 +169,7 @@ export default function SuperAdminSettings({ token, onSettingsUpdated }: SuperAd
   const handleApproveEvent = async (eventId: string) => {
     setEventActionId(eventId);
     try {
-      const res = await fetch(`/api/events/${eventId}/approve`, {
+      const res = await apiFetch(`/api/events/${eventId}/approve`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`
@@ -156,7 +178,8 @@ export default function SuperAdminSettings({ token, onSettingsUpdated }: SuperAd
       if (res.ok) {
         fetchEvents();
       } else {
-        const data = await res.json();
+        let data: any = {};
+        try { data = await res.json(); } catch { data = {}; }
         alert(data.error || '審核通過失敗');
       }
     } catch (err) {
@@ -172,7 +195,7 @@ export default function SuperAdminSettings({ token, onSettingsUpdated }: SuperAd
     }
     setEventActionId(eventId);
     try {
-      const res = await fetch(`/api/events/${eventId}/reject`, {
+      const res = await apiFetch(`/api/events/${eventId}/reject`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`
@@ -181,7 +204,8 @@ export default function SuperAdminSettings({ token, onSettingsUpdated }: SuperAd
       if (res.ok) {
         fetchEvents();
       } else {
-        const data = await res.json();
+        let data: any = {};
+        try { data = await res.json(); } catch { data = {}; }
         alert(data.error || '駁回失敗');
       }
     } catch (err) {
@@ -193,7 +217,7 @@ export default function SuperAdminSettings({ token, onSettingsUpdated }: SuperAd
 
   const handleRoleChange = async (userId: string, newRole: string) => {
     try {
-      const res = await fetch(`/api/admin/users/${userId}/role`, {
+      const res = await apiFetch(`/api/admin/users/${userId}/role`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -201,7 +225,8 @@ export default function SuperAdminSettings({ token, onSettingsUpdated }: SuperAd
         },
         body: JSON.stringify({ role: newRole })
       });
-      const data = await res.json();
+      let data: any = {};
+      try { data = await res.json(); } catch { data = {}; }
       if (res.ok) {
         alert(data.message || '角色權限變更成功！');
         fetchUsers();
@@ -218,13 +243,14 @@ export default function SuperAdminSettings({ token, onSettingsUpdated }: SuperAd
       return;
     }
     try {
-      const res = await fetch(`/api/admin/users/${userId}`, {
+      const res = await apiFetch(`/api/admin/users/${userId}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${token}`
         }
       });
-      const data = await res.json();
+      let data: any = {};
+      try { data = await res.json(); } catch { data = {}; }
       if (res.ok) {
         alert(data.message || '使用者帳號已成功刪除！');
         fetchUsers();
@@ -239,9 +265,9 @@ export default function SuperAdminSettings({ token, onSettingsUpdated }: SuperAd
   return (
     <div className="space-y-6 pb-12">
       {/* Title */}
-      <div className="border-b border-slate-200 pb-4">
-        <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
-          <Settings size={22} className="text-blue-600 animate-spin-slow" />
+      <div className="border-b border-slate-800 pb-4">
+        <h2 className="text-xl font-bold text-white flex items-center gap-2">
+          <Settings size={22} className="text-blue-400 animate-spin-slow" />
           <span>超級管理員系統控制中心</span>
         </h2>
         <p className="text-xs text-slate-400 mt-1">
@@ -514,13 +540,14 @@ export default function SuperAdminSettings({ token, onSettingsUpdated }: SuperAd
                     }
                     if (window.confirm("🚨 確定要切換至「非演示正式營運模式」嗎？\n這將清空所有的展示測試帳號（@ticket.com）、示範活動與示範票券，保留您目前的管理員帳號，並讓系統進入純淨的正式環境開放使用者註冊購票！")) {
                       try {
-                        const res = await fetch('/api/admin/clean-slate', {
+                        const res = await apiFetch('/api/admin/clean-slate', {
                           method: 'POST',
                           headers: {
                             'Authorization': `Bearer ${token}`
                           }
                         });
-                        const data = await res.json();
+                        let data: any = {};
+                        try { data = await res.json(); } catch { data = {}; }
                         alert(data.message || "系統已成功清空測試帳號並進入正式模式！");
                         fetchSettings();
                         if (onSettingsUpdated) onSettingsUpdated();
@@ -544,8 +571,9 @@ export default function SuperAdminSettings({ token, onSettingsUpdated }: SuperAd
                   onClick={async () => {
                     if (window.confirm("🚨 您即將初始化並重置為演示模式！\n這將還原標準展示帳號（admin@ticket.com / admin123）與預載活動。確定執行嗎？")) {
                       try {
-                        const res = await fetch('/api/admin/reset', { method: 'POST' });
-                        const data = await res.json();
+                        const res = await apiFetch('/api/admin/reset', { method: 'POST' });
+                        let data: any = {};
+                        try { data = await res.json(); } catch { data = {}; }
                         alert(data.message || "資料庫初始化重置成功！");
                         window.location.reload();
                       } catch {
@@ -709,12 +737,12 @@ export default function SuperAdminSettings({ token, onSettingsUpdated }: SuperAd
             <div className="space-y-4">
               {/* Mobile Card List View */}
               <div className="block md:hidden space-y-3">
-                {users.map(u => {
-                  const isDefaultAdmin = u.id.includes('default') || u.id === 'usr-admin-seed';
+                {users.map((u, idx) => {
+                  const isDefaultAdmin = String(u?.id || '').includes('default') || u?.id === 'usr-admin-seed' || u?.id === 'usr-admin';
                   const canDelete = !isDefaultAdmin;
 
                   return (
-                    <div key={u.id} className="p-3.5 bg-slate-50/70 rounded-xl border border-slate-200/80 space-y-2.5 text-xs">
+                    <div key={u?.id || idx} className="p-3.5 bg-slate-50/70 rounded-xl border border-slate-200/80 space-y-2.5 text-xs">
                       <div className="flex justify-between items-start gap-2 border-b border-slate-200/60 pb-2">
                         <div>
                           <p className="font-bold text-slate-800 text-sm">{u.name}</p>
@@ -775,12 +803,12 @@ export default function SuperAdminSettings({ token, onSettingsUpdated }: SuperAd
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {users.map(u => {
-                      const isDefaultAdmin = u.id.includes('default') || u.id === 'usr-admin-seed';
+                    {users.map((u, idx) => {
+                      const isDefaultAdmin = String(u?.id || '').includes('default') || u?.id === 'usr-admin-seed' || u?.id === 'usr-admin';
                       const canDelete = !isDefaultAdmin;
                       
                       return (
-                        <tr key={u.id} className="hover:bg-slate-50/20">
+                        <tr key={u?.id || idx} className="hover:bg-slate-50/20">
                           <td className="py-3 px-3">
                             <p className="font-bold text-slate-800">{u.name}</p>
                             <span className="text-[9px] text-slate-400 font-mono">ID: {u.id}</span>

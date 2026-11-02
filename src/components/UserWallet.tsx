@@ -7,6 +7,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { CreditCard, Calendar, MapPin, QrCode, Send, ShieldCheck, History, ArrowRight, X, AlertTriangle, CheckCircle, Gift } from 'lucide-react';
 import { Ticket } from '../types';
+import { apiFetch } from '../utils/apiInterceptor';
 
 interface UserWalletProps {
   token: string;
@@ -40,7 +41,7 @@ export default function UserWallet({ token }: UserWalletProps) {
   const fetchTickets = async (showLoading: boolean) => {
     try {
       if (showLoading) setLoading(true);
-      const res = await fetch('/api/tickets/my', {
+      const res = await apiFetch('/api/tickets/my', {
         headers: {
           'Authorization': `Bearer ${token}`
         }
@@ -48,16 +49,18 @@ export default function UserWallet({ token }: UserWalletProps) {
       if (res.ok) {
         try {
           const data = await res.json();
-          // If selected ticket status changed during poll, update selected too
-          setTickets(prev => {
-            if (selectedTicket) {
-              const updated = data.find((t: Ticket) => t.id === selectedTicket.id);
-              if (updated && updated.status !== selectedTicket.status) {
-                setSelectedTicket(updated);
+          if (Array.isArray(data)) {
+            // If selected ticket status changed during poll, update selected too
+            setTickets(prev => {
+              if (selectedTicket) {
+                const updated = data.find((t: Ticket) => t.id === selectedTicket.id);
+                if (updated && updated.status !== selectedTicket.status) {
+                  setSelectedTicket(updated);
+                }
               }
-            }
-            return data;
-          });
+              return data;
+            });
+          }
         } catch {
           // ignore
         }
@@ -85,7 +88,7 @@ export default function UserWallet({ token }: UserWalletProps) {
     setTransferSuccess('');
 
     try {
-      const res = await fetch('/api/tickets/transfer', {
+      const res = await apiFetch('/api/tickets/transfer', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

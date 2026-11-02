@@ -7,6 +7,7 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Calendar, MapPin, Tag, Users, Check, ShoppingBag, X, Info, Sparkles, Heart } from 'lucide-react';
 import { EventSetting } from '../types';
+import { apiFetch } from '../utils/apiInterceptor';
 
 interface UserEventsProps {
   token?: string;
@@ -53,11 +54,13 @@ export default function UserEvents({ token, onPurchaseSuccess, onLoginRequired }
   const fetchEvents = async () => {
     try {
       setLoading(true);
-      const res = await fetch('/api/events');
+      const res = await apiFetch('/api/events');
       if (res.ok) {
         try {
           const data = await res.json();
-          setEvents(data);
+          if (Array.isArray(data)) {
+            setEvents(data);
+          }
         } catch {
           // ignore
         }
@@ -84,7 +87,7 @@ export default function UserEvents({ token, onPurchaseSuccess, onLoginRequired }
     setErrorMsg('');
     
     try {
-      const res = await fetch('/api/tickets/purchase', {
+      const res = await apiFetch('/api/tickets/purchase', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

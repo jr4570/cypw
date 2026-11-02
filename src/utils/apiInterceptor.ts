@@ -39,30 +39,30 @@ export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Pr
 
   try {
     const response = await nativeFetch(input, init);
+    const backendHeader = response.headers.get('X-StarPass-Backend');
     const contentType = response.headers.get('content-type') || '';
 
-    // If backend responded with valid JSON or CSV, return it
-    if (contentType.includes('application/json') || (isCsv && contentType.includes('text/csv'))) {
+    // Only use network response directly if it came from the stateful Node.js Express server
+    if (
+      backendHeader === 'express-server' &&
+      (contentType.includes('application/json') || (isCsv && contentType.includes('text/csv')))
+    ) {
       return response;
     }
 
-    // If response is HTML (static host returned index.html for unknown /api route) or 404/502
-    if (contentType.includes('text/html') || response.status === 404 || response.status === 502) {
-      const mockResult = await handleMockApiRequest(urlString, init);
-      const isStringBody = typeof mockResult.body === 'string';
-      const responseBody = isStringBody ? mockResult.body : JSON.stringify(mockResult.body);
-      const mimeType = isCsv ? 'text/csv; charset=utf-8' : 'application/json; charset=utf-8';
+    // For Cloudflare Pages, Netlify, static hosts, or edge stubs, use the stateful client engine
+    const mockResult = await handleMockApiRequest(urlString, init);
+    const isStringBody = typeof mockResult.body === 'string';
+    const responseBody = isStringBody ? mockResult.body : JSON.stringify(mockResult.body);
+    const mimeType = isCsv ? 'text/csv; charset=utf-8' : 'application/json; charset=utf-8';
 
-      return new Response(responseBody, {
-        status: mockResult.status,
-        headers: {
-          'Content-Type': mimeType,
-          'X-StarPass-Engine': 'Client-Offline-Mock'
-        }
-      });
-    }
-
-    return response;
+    return new Response(responseBody, {
+      status: mockResult.status,
+      headers: {
+        'Content-Type': mimeType,
+        'X-StarPass-Engine': 'Client-Stateful-Engine'
+      }
+    });
   } catch (_err) {
     // Network failure (offline / server unreachable)
     const mockResult = await handleMockApiRequest(urlString, init);
@@ -74,7 +74,7 @@ export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Pr
       status: mockResult.status,
       headers: {
         'Content-Type': mimeType,
-        'X-StarPass-Engine': 'Client-Offline-Mock'
+        'X-StarPass-Engine': 'Client-Stateful-Engine'
       }
     });
   }

@@ -6,6 +6,7 @@
 import React, { useState } from 'react';
 import { motion } from 'motion/react';
 import { Calendar, MapPin, Tag, Plus, Check, Info, Trash2 } from 'lucide-react';
+import { apiFetch } from '../utils/apiInterceptor';
 
 interface AdminEventsProps {
   token: string;
@@ -69,7 +70,7 @@ export default function AdminEvents({ token, onEventCreated }: AdminEventsProps)
     const finalCapacity = totalCapacity > 0 ? totalCapacity : Number(capacity);
 
     try {
-      const res = await fetch('/api/events', {
+      const res = await apiFetch('/api/events', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -89,7 +90,8 @@ export default function AdminEvents({ token, onEventCreated }: AdminEventsProps)
         })
       });
 
-      const data = await res.json();
+      let data: any = {};
+      try { data = await res.json(); } catch { data = {}; }
       if (!res.ok) {
         throw new Error(data.error || '建立活動失敗');
       }

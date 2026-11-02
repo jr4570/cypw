@@ -164,6 +164,52 @@ export async function onRequest(context: any): Promise<Response> {
     }), { status: 200, headers: jsonHeaders });
   }
 
+  // 6. Admin stats (Prevents Cloudflare Dashboard white screen)
+  if (pathname === '/api/admin/stats') {
+    const defaultStats = {
+      totalRevenue: 28800,
+      totalTicketsSold: 8,
+      totalEventsCount: 2,
+      totalCheckedIn: 3,
+      salesTimeline: [
+        { date: "10-26", count: 1, revenue: 3600 },
+        { date: "10-27", count: 2, revenue: 7200 },
+        { date: "10-28", count: 0, revenue: 0 },
+        { date: "10-29", count: 1, revenue: 2400 },
+        { date: "10-30", count: 2, revenue: 7200 },
+        { date: "10-31", count: 1, revenue: 3600 },
+        { date: "11-01", count: 1, revenue: 4800 }
+      ],
+      checkInRatesByEvent: [
+        { eventId: "evt-001", title: "2026 臺北跨年巨星演唱會...", checkedIn: 2, total: 5 },
+        { eventId: "evt-002", title: "AI 科技創新與未來社會峰會...", checkedIn: 1, total: 3 }
+      ],
+      recentLogs: [
+        {
+          id: "log-seed-cf",
+          ticketCode: "TIX-evt-001-demo-10001",
+          eventId: "evt-001",
+          eventTitle: "2026 臺北跨年巨星演唱會",
+          userId: "usr-cust-demo",
+          ownerEmail: "user@ticket.com",
+          checkedInAt: new Date().toISOString(),
+          status: "success",
+          device: "Cloudflare Edge Gate"
+        }
+      ]
+    };
+    return new Response(JSON.stringify(defaultStats), { status: 200, headers: jsonHeaders });
+  }
+
+  // 7. Admin users
+  if (pathname === '/api/admin/users') {
+    return new Response(JSON.stringify([
+      { id: "usr-admin-demo", email: "admin@ticket.com", name: "系統管理員", role: "admin", createdAt: new Date().toISOString() },
+      { id: "usr-staff-demo", email: "staff@ticket.com", name: "現場主管", role: "admin", createdAt: new Date().toISOString() },
+      { id: "usr-cust-demo", email: "user@ticket.com", name: "示範買家", role: "customer", createdAt: new Date().toISOString() }
+    ]), { status: 200, headers: jsonHeaders });
+  }
+
   // Default JSON response for edge routing
   return new Response(JSON.stringify({ success: true, message: 'Cloudflare Edge API' }), { status: 200, headers: jsonHeaders });
 }

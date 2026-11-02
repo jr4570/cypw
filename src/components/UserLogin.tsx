@@ -73,8 +73,8 @@ export default function UserLogin({ onLoginSuccess, switchToAdmin, hideSwitchToA
         data = { error: '伺服器回應資料解析失敗' };
       }
 
-      if (!res.ok) {
-        throw new Error(data.error || '認證程序發生錯誤');
+      if (!res.ok || data?.error) {
+        throw new Error(data?.error || '認證程序發生錯誤');
       }
 
       if (isRegister) {
@@ -88,19 +88,28 @@ export default function UserLogin({ onLoginSuccess, switchToAdmin, hideSwitchToA
               body: JSON.stringify({ email, password, role: 'customer' }),
             });
             const loginData = await loginRes.json();
-            if (loginRes.ok) {
-              onLoginSuccess(loginData.user, loginData.token);
+            if (loginRes.ok && loginData?.user?.email) {
+              onLoginSuccess(loginData.user, loginData.token || `token_${loginData.user.id}`);
+            } else if (data?.user?.email) {
+              onLoginSuccess(data.user, data.token || `token_${data.user.id}`);
             } else {
               setIsRegister(false);
               setSuccessMsg('');
             }
           } catch {
-            setIsRegister(false);
-            setSuccessMsg('');
+            if (data?.user?.email) {
+              onLoginSuccess(data.user, data.token || `token_${data.user.id}`);
+            } else {
+              setIsRegister(false);
+              setSuccessMsg('');
+            }
           }
-        }, 1500);
+        }, 800);
       } else {
-        onLoginSuccess(data.user, data.token);
+        if (!data?.user?.email) {
+          throw new Error('登入驗證回應異常，請重新嘗試');
+        }
+        onLoginSuccess(data.user, data.token || `token_${data.user.id}`);
       }
     } catch (err: any) {
       setError(cleanErrorMessage(err, '連線伺服器失敗'));

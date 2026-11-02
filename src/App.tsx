@@ -23,15 +23,22 @@ import { apiFetch } from './utils/apiInterceptor';
 
 export default function App() {
   const [role, setRole] = useState<'customer' | 'admin'>(() => {
-    return (localStorage.getItem('starpass_role') as 'customer' | 'admin') || 'customer';
+    const saved = localStorage.getItem('starpass_role');
+    return (saved === 'admin' || saved === 'customer') ? saved : 'customer';
   });
   const [customerUser, setCustomerUser] = useState<UserProfile | null>(() => {
     const saved = localStorage.getItem('starpass_customerUser');
-    try { return saved ? JSON.parse(saved) : null; } catch { return null; }
+    try {
+      const parsed = saved ? JSON.parse(saved) : null;
+      return (parsed && typeof parsed === 'object' && typeof parsed.id === 'string' && typeof parsed.email === 'string') ? parsed : null;
+    } catch { return null; }
   });
   const [adminUser, setAdminUser] = useState<UserProfile | null>(() => {
     const saved = localStorage.getItem('starpass_adminUser');
-    try { return saved ? JSON.parse(saved) : null; } catch { return null; }
+    try {
+      const parsed = saved ? JSON.parse(saved) : null;
+      return (parsed && typeof parsed === 'object' && typeof parsed.id === 'string' && typeof parsed.email === 'string') ? parsed : null;
+    } catch { return null; }
   });
   const [showCustomerLogin, setShowCustomerLogin] = useState<boolean>(false);
   
@@ -45,10 +52,12 @@ export default function App() {
 
   // Navigation sub-views
   const [customerSubView, setCustomerSubView] = useState<'events' | 'wallet' | 'favorites' | 'settings'>(() => {
-    return (localStorage.getItem('starpass_customerSubView') as any) || 'events';
+    const saved = localStorage.getItem('starpass_customerSubView');
+    return (saved === 'events' || saved === 'wallet' || saved === 'favorites' || saved === 'settings') ? saved : 'events';
   });
   const [adminSubView, setAdminSubView] = useState<'dashboard' | 'create-event' | 'scan' | 'system-settings'>(() => {
-    return (localStorage.getItem('starpass_adminSubView') as any) || 'dashboard';
+    const saved = localStorage.getItem('starpass_adminSubView');
+    return (saved === 'dashboard' || saved === 'create-event' || saved === 'scan' || saved === 'system-settings') ? saved : 'dashboard';
   });
 
   const [systemSettings, setSystemSettings] = useState<{
@@ -179,7 +188,7 @@ export default function App() {
         return null;
       })
       .then(freshUser => {
-        if (freshUser) {
+        if (freshUser && typeof freshUser.id === 'string' && typeof freshUser.email === 'string') {
           setCustomerUser(freshUser);
         }
       })
@@ -203,7 +212,7 @@ export default function App() {
         return null;
       })
       .then(freshAdmin => {
-        if (freshAdmin) {
+        if (freshAdmin && typeof freshAdmin.id === 'string' && typeof freshAdmin.email === 'string') {
           setAdminUser(freshAdmin);
         }
       })
@@ -214,15 +223,17 @@ export default function App() {
   }, []);
 
   const handleCustomerLogin = (user: UserProfile, token: string) => {
+    if (!user || !user.email) return;
     setCustomerUser(user);
-    setCustomerToken(token);
+    setCustomerToken(token || `token_${user.id}`);
     setCustomerSubView('events');
     setShowCustomerLogin(false);
   };
 
   const handleAdminLogin = (user: UserProfile, token: string) => {
+    if (!user || !user.email) return;
     setAdminUser(user);
-    setAdminToken(token);
+    setAdminToken(token || `token_${user.id}`);
     if (user.role === UserRole.SCANNER) {
       setAdminSubView('scan');
     } else {
@@ -540,107 +551,99 @@ export default function App() {
 
       {/* Main Container */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 pb-28 md:pb-8">
-        <AnimatePresence mode="wait">
-          {role === 'admin' && !adminUser ? (
-            /* Admin Login View */
-            <AdminLogin 
-              onLoginSuccess={handleAdminLogin} 
-              switchToUser={switchToCustomer} 
-            />
-          ) : role === 'customer' && showCustomerLogin ? (
-            /* Customer login screen */
-            <UserLogin 
-              onLoginSuccess={handleCustomerLogin} 
-              switchToAdmin={switchToAdmin}
-              onCancel={() => setShowCustomerLogin(false)}
-            />
-          ) : (
-            /* Main workspace view */
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.25 }}
-              className="space-y-6"
-            >
-              {role === 'customer' ? (
-                /* Customer SubViews */
-                customerSubView === 'events' ? (
-                  <UserEvents 
+        {role === 'admin' && !adminUser ? (
+          /* Admin Login View */
+          <AdminLogin 
+            onLoginSuccess={handleAdminLogin} 
+            switchToUser={switchToCustomer} 
+          />
+        ) : role === 'customer' && showCustomerLogin ? (
+          /* Customer login screen */
+          <UserLogin 
+            onLoginSuccess={handleCustomerLogin} 
+            switchToAdmin={switchToAdmin}
+            onCancel={() => setShowCustomerLogin(false)}
+          />
+        ) : (
+          /* Main workspace view */
+          <div className="space-y-6">
+            {role === 'customer' ? (
+              /* Customer SubViews */
+              customerSubView === 'events' ? (
+                <UserEvents 
+                  token={customerToken} 
+                  onPurchaseSuccess={() => setCustomerSubView('wallet')} 
+                  onLoginRequired={() => setShowCustomerLogin(true)}
+                />
+              ) : customerSubView === 'favorites' ? (
+                <UserFavorites 
+                  token={customerToken}
+                  onViewEvents={() => setCustomerSubView('events')} 
+                  onBookEvent={() => setCustomerSubView('events')}
+                  onLoginRequired={() => setShowCustomerLogin(true)}
+                />
+              ) : customerSubView === 'settings' ? (
+                customerToken && customerUser ? (
+                  <UserSettings 
+                    user={customerUser}
                     token={customerToken} 
-                    onPurchaseSuccess={() => setCustomerSubView('wallet')} 
-                    onLoginRequired={() => setShowCustomerLogin(true)}
+                    onLogout={handleLogout}
+                    onUpdateProfile={(updatedUser) => setCustomerUser(updatedUser)} 
                   />
-                ) : customerSubView === 'favorites' ? (
-                  <UserFavorites 
-                    token={customerToken}
-                    onViewEvents={() => setCustomerSubView('events')} 
-                    onBookEvent={() => setCustomerSubView('events')}
-                    onLoginRequired={() => setShowCustomerLogin(true)}
-                  />
-                ) : customerSubView === 'settings' ? (
-                  customerToken ? (
-                    <UserSettings 
-                      user={customerUser!}
-                      token={customerToken} 
-                      onLogout={handleLogout}
-                      onUpdateProfile={(updatedUser) => setCustomerUser(updatedUser)} 
-                    />
-                  ) : (
-                    <div className="max-w-md mx-auto text-center p-8 bg-white rounded-2xl border border-slate-200 shadow-md space-y-4">
-                      <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center mx-auto">
-                        <Settings size={24} />
-                      </div>
-                      <h3 className="font-bold text-base text-slate-800">請先登入帳戶</h3>
-                      <p className="text-xs text-slate-500">個人安全密碼與姓名電話設定需要進行核簽，請先登入您的帳戶。</p>
-                      <button
-                        onClick={() => setShowCustomerLogin(true)}
-                        className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-xl cursor-pointer shadow-xs hover:shadow-md"
-                      >
-                        立即登入 / 註冊
-                      </button>
-                    </div>
-                  )
                 ) : (
-                  customerToken ? (
-                    <UserWallet token={customerToken} />
-                  ) : (
-                    <div className="max-w-md mx-auto text-center p-8 bg-white rounded-2xl border border-slate-200 shadow-md space-y-4">
-                      <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center mx-auto">
-                        <Wallet size={24} />
-                      </div>
-                      <h3 className="font-bold text-base text-slate-800">請先登入帳戶</h3>
-                      <p className="text-xs text-slate-500">我的電子票夾需要進行身分核簽，請登入您的帳戶以同步您擁有的數位票券。</p>
-                      <button
-                        onClick={() => setShowCustomerLogin(true)}
-                        className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-xl cursor-pointer shadow-xs hover:shadow-md"
-                      >
-                        立即登入 / 註冊
-                      </button>
+                  <div className="max-w-md mx-auto text-center p-8 bg-white rounded-2xl border border-slate-200 shadow-md space-y-4">
+                    <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center mx-auto">
+                      <Settings size={24} />
                     </div>
-                  )
+                    <h3 className="font-bold text-base text-slate-800">請先登入帳戶</h3>
+                    <p className="text-xs text-slate-500">個人安全密碼與姓名電話設定需要進行核簽，請先登入您的帳戶。</p>
+                    <button
+                      onClick={() => setShowCustomerLogin(true)}
+                      className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-xl cursor-pointer shadow-xs hover:shadow-md"
+                    >
+                      立即登入 / 註冊
+                    </button>
+                  </div>
                 )
               ) : (
-                /* Admin SubViews */
-                adminSubView === 'dashboard' ? (
-                  <AdminDashboard token={activeToken} />
-                ) : adminSubView === 'create-event' ? (
-                  <AdminEvents 
-                    token={activeToken} 
-                    onEventCreated={() => setAdminSubView('dashboard')} 
-                  />
-                ) : adminSubView === 'system-settings' ? (
-                  <SuperAdminSettings 
-                    token={activeToken} 
-                    onSettingsUpdated={fetchSystemSettings} 
-                  />
+                customerToken ? (
+                  <UserWallet token={customerToken} />
                 ) : (
-                  <AdminScan token={activeToken} />
+                  <div className="max-w-md mx-auto text-center p-8 bg-white rounded-2xl border border-slate-200 shadow-md space-y-4">
+                    <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center mx-auto">
+                      <Wallet size={24} />
+                    </div>
+                    <h3 className="font-bold text-base text-slate-800">請先登入帳戶</h3>
+                    <p className="text-xs text-slate-500">我的電子票夾需要進行身分核簽，請登入您的帳戶以同步您擁有的數位票券。</p>
+                    <button
+                      onClick={() => setShowCustomerLogin(true)}
+                      className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-xl cursor-pointer shadow-xs hover:shadow-md"
+                    >
+                      立即登入 / 註冊
+                    </button>
+                  </div>
                 )
-              )}
-            </motion.div>
-          )}
-        </AnimatePresence>
+              )
+            ) : (
+              /* Admin SubViews */
+              adminSubView === 'dashboard' ? (
+                <AdminDashboard token={activeToken} />
+              ) : adminSubView === 'create-event' ? (
+                <AdminEvents 
+                  token={activeToken} 
+                  onEventCreated={() => setAdminSubView('dashboard')} 
+                />
+              ) : adminSubView === 'system-settings' ? (
+                <SuperAdminSettings 
+                  token={activeToken} 
+                  onSettingsUpdated={fetchSystemSettings} 
+                />
+              ) : (
+                <AdminScan token={activeToken} />
+              )
+            )}
+          </div>
+        )}
       </main>
 
       {/* Mobile Sticky Bottom Navigation Bar */}

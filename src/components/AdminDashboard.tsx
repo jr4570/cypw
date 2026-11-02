@@ -7,6 +7,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'motion/react';
 import { BarChart3, TrendingUp, CheckCircle, Ticket, Wallet, FileDown, RefreshCw, AlertTriangle, ShieldCheck, HelpCircle, Users, Trash2, X } from 'lucide-react';
 import { AdminStats, CheckInLog } from '../types';
+import { apiFetch } from '../utils/apiInterceptor';
 
 interface AdminDashboardProps {
   token: string;
@@ -24,10 +25,10 @@ export default function AdminDashboard({ token }: AdminDashboardProps) {
   useEffect(() => {
     fetchStats(true);
     
-    // Poll stats every 2.5 seconds to support true real-time multi-platform check-ins tracking
+    // Poll stats every 3 seconds to support true real-time multi-platform check-ins tracking
     pollIntervalRef.current = setInterval(() => {
       fetchStats(false);
-    }, 2500);
+    }, 3000);
 
     return () => {
       if (pollIntervalRef.current) {
@@ -39,17 +40,23 @@ export default function AdminDashboard({ token }: AdminDashboardProps) {
   const fetchStats = async (showLoading: boolean) => {
     try {
       if (showLoading) setLoading(true);
-      const res = await fetch('/api/admin/stats', {
+      const res = await apiFetch('/api/admin/stats', {
         headers: {
           'Authorization': `Bearer ${token}`
         }
       });
       if (res.ok) {
-        const data = await res.json();
-        setStats(data);
+        try {
+          const data = await res.json();
+          if (data && typeof data === 'object') {
+            setStats(data);
+          }
+        } catch {
+          // ignore parse failure
+        }
       }
     } catch (err) {
-      console.error("Error fetching admin stats:", err);
+      console.warn("Could not fetch admin stats:", err);
     } finally {
       if (showLoading) setLoading(false);
     }
@@ -64,14 +71,18 @@ export default function AdminDashboard({ token }: AdminDashboardProps) {
   const fetchUsers = async () => {
     try {
       setUserLoading(true);
-      const res = await fetch('/api/admin/users', {
+      const res = await apiFetch('/api/admin/users', {
         headers: {
           'Authorization': `Bearer ${token}`
         }
       });
       if (res.ok) {
-        const data = await res.json();
-        setUsers(data);
+        try {
+          const data = await res.json();
+          setUsers(Array.isArray(data) ? data : []);
+        } catch {
+          setUsers([]);
+        }
       }
     } catch (err) {
       console.error("Error fetching users:", err);
@@ -85,13 +96,14 @@ export default function AdminDashboard({ token }: AdminDashboardProps) {
       return;
     }
     try {
-      const res = await fetch(`/api/admin/users/${userId}`, {
+      const res = await apiFetch(`/api/admin/users/${userId}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${token}`
         }
       });
-      const data = await res.json();
+      let data: any = {};
+      try { data = await res.json(); } catch { data = {}; }
       if (res.ok) {
         alert(data.message || "使用者帳號已成功刪除！");
         fetchUsers();
@@ -109,13 +121,14 @@ export default function AdminDashboard({ token }: AdminDashboardProps) {
       return;
     }
     try {
-      const res = await fetch(`/api/admin/logs/${logId}`, {
+      const res = await apiFetch(`/api/admin/logs/${logId}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${token}`
         }
       });
-      const data = await res.json();
+      let data: any = {};
+      try { data = await res.json(); } catch { data = {}; }
       if (res.ok) {
         fetchStats(false);
       } else {
@@ -131,13 +144,14 @@ export default function AdminDashboard({ token }: AdminDashboardProps) {
       return;
     }
     try {
-      const res = await fetch('/api/admin/clear-logs', {
+      const res = await apiFetch('/api/admin/clear-logs', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`
         }
       });
-      const data = await res.json();
+      let data: any = {};
+      try { data = await res.json(); } catch { data = {}; }
       if (res.ok) {
         alert(data.message || "核銷紀錄已成功清空！");
         fetchStats(true);
@@ -154,7 +168,7 @@ export default function AdminDashboard({ token }: AdminDashboardProps) {
       return;
     }
     try {
-      const res = await fetch('/api/admin/reset', {
+      const res = await apiFetch('/api/admin/reset', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`
@@ -170,7 +184,7 @@ export default function AdminDashboard({ token }: AdminDashboardProps) {
   };
 
   const exportCSV = () => {
-    if (!stats || stats.recentLogs.length === 0) {
+    if (!safeStats.recentLogs || safeStats.recentLogs.length === 0) {
       alert("目前尚無核銷紀錄可供匯出！");
       return;
     }
@@ -178,7 +192,7 @@ export default function AdminDashboard({ token }: AdminDashboardProps) {
     let csvContent = "data:text/csv;charset=utf-8,\uFEFF"; // Include BOM for Chinese characters
     csvContent += "紀錄ID,核銷票號,活動主題,使用者身分(金鑰),持票人電子郵件,核銷時間,核銷狀態,驗票裝置\n";
 
-    stats.recentLogs.forEach(log => {
+    safeStats.recentLogs.forEach(log => {
       const statusText = log.status === 'success' ? '成功進場' 
                        : log.status === 'duplicate' ? '重複掃描警報' 
                        : log.status === 'invalid_sig' ? '防偽雜湊失敗(偽造)' 
@@ -187,10 +201,10 @@ export default function AdminDashboard({ token }: AdminDashboardProps) {
       const row = [
         log.id,
         log.ticketCode,
-        log.eventTitle.replace(/,/g, " "),
+        (log.eventTitle || '').replace(/,/g, " "),
         log.userId,
         log.ownerEmail,
-        new Date(log.checkedInAt).toLocaleString('zh-TW'),
+        log.checkedInAt ? new Date(log.checkedInAt).toLocaleString('zh-TW') : '',
         statusText,
         log.device || 'Admin Gateway'
       ].join(",");
@@ -206,6 +220,26 @@ export default function AdminDashboard({ token }: AdminDashboardProps) {
     document.body.removeChild(link);
   };
 
+  const safeStats: AdminStats = {
+    totalRevenue: stats?.totalRevenue ?? 0,
+    totalTicketsSold: stats?.totalTicketsSold ?? 0,
+    totalEventsCount: stats?.totalEventsCount ?? 0,
+    totalCheckedIn: stats?.totalCheckedIn ?? 0,
+    salesTimeline: (stats?.salesTimeline && Array.isArray(stats.salesTimeline) && stats.salesTimeline.length > 0)
+      ? stats.salesTimeline
+      : [
+          { date: "10-26", count: 0, revenue: 0 },
+          { date: "10-27", count: 0, revenue: 0 },
+          { date: "10-28", count: 0, revenue: 0 },
+          { date: "10-29", count: 0, revenue: 0 },
+          { date: "10-30", count: 0, revenue: 0 },
+          { date: "10-31", count: 0, revenue: 0 },
+          { date: "11-01", count: 0, revenue: 0 }
+        ],
+    checkInRatesByEvent: (stats?.checkInRatesByEvent && Array.isArray(stats.checkInRatesByEvent)) ? stats.checkInRatesByEvent : [],
+    recentLogs: (stats?.recentLogs && Array.isArray(stats.recentLogs)) ? stats.recentLogs : []
+  };
+
   if (loading && !stats) {
     return (
       <div className="flex justify-center items-center py-20">
@@ -214,22 +248,20 @@ export default function AdminDashboard({ token }: AdminDashboardProps) {
     );
   }
 
-  const checkInRate = stats && stats.totalTicketsSold > 0 
-    ? (stats.totalCheckedIn / stats.totalTicketsSold) * 100 
+  const checkInRate = safeStats.totalTicketsSold > 0 
+    ? (safeStats.totalCheckedIn / safeStats.totalTicketsSold) * 100 
     : 0;
 
   // Custom SVG Chart calculations
-  const maxRevenue = stats && stats.salesTimeline.length > 0
-    ? Math.max(...stats.salesTimeline.map(s => s.revenue), 1000)
-    : 1000;
+  const maxRevenue = Math.max(...safeStats.salesTimeline.map(s => s.revenue || 0), 1000);
 
   return (
     <div className="space-y-6 text-slate-800">
       {/* Title & Real-time Pulsing Badge */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h2 className="text-xl font-bold font-sans text-slate-900 tracking-tight">主辦方數據分析控制台</h2>
-          <p className="text-xs text-slate-500 mt-1">即時統計平台票務銷售流速、活動核銷比例及防偽日誌</p>
+          <h2 className="text-xl font-bold font-sans text-white tracking-tight">主辦方數據分析控制台</h2>
+          <p className="text-xs text-slate-400 mt-1">即時統計平台票務銷售流速、活動核銷比例及防偽日誌</p>
         </div>
         <div className="flex items-center gap-2 self-start sm:self-auto">
           <div className="flex items-center gap-1 bg-blue-50 border border-blue-100 text-blue-700 text-[10px] font-extrabold px-3 py-1.5 rounded-full shadow-xs animate-pulse">
@@ -249,164 +281,162 @@ export default function AdminDashboard({ token }: AdminDashboardProps) {
       </div>
 
       {/* Stats Bento Grid */}
-      {stats && (
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <div className="p-5 bg-white border border-slate-200 rounded-2xl shadow-xs flex items-center justify-between">
-            <div className="space-y-1">
-              <p className="text-[10px] uppercase font-bold text-slate-400">累計票房收入 (TWD)</p>
-              <h3 className="text-xl font-black text-slate-900">NT$ {stats.totalRevenue.toLocaleString()}</h3>
-            </div>
-            <div className="bg-emerald-50 text-emerald-600 p-2.5 rounded-xl border border-emerald-100 shrink-0">
-              <Wallet size={18} />
-            </div>
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="p-5 bg-white border border-slate-200 rounded-2xl shadow-xs flex items-center justify-between">
+          <div className="space-y-1">
+            <p className="text-[10px] uppercase font-bold text-slate-400">累計票房收入 (TWD)</p>
+            <h3 className="text-xl font-black text-slate-900">NT$ {safeStats.totalRevenue.toLocaleString()}</h3>
           </div>
-
-          <div className="p-5 bg-white border border-slate-200 rounded-2xl shadow-xs flex items-center justify-between">
-            <div className="space-y-1">
-              <p className="text-[10px] uppercase font-bold text-slate-400">已售出票券量</p>
-              <h3 className="text-xl font-black text-slate-900">{stats.totalTicketsSold} <span className="text-xs font-normal text-slate-400">張</span></h3>
-            </div>
-            <div className="bg-blue-50 text-blue-600 p-2.5 rounded-xl border border-blue-100 shrink-0">
-              <Ticket size={18} />
-            </div>
-          </div>
-
-          <div className="p-5 bg-white border border-slate-200 rounded-2xl shadow-xs flex items-center justify-between">
-            <div className="space-y-1">
-              <p className="text-[10px] uppercase font-bold text-slate-400">已核銷入場量</p>
-              <h3 className="text-xl font-black text-slate-900">{stats.totalCheckedIn} <span className="text-xs font-normal text-slate-400">人次</span></h3>
-            </div>
-            <div className="bg-teal-50 text-teal-600 p-2.5 rounded-xl border border-teal-100 shrink-0">
-              <CheckCircle size={18} />
-            </div>
-          </div>
-
-          <div className="p-5 bg-white border border-slate-200 rounded-2xl shadow-xs flex items-center justify-between">
-            <div className="space-y-1">
-              <p className="text-[10px] uppercase font-bold text-slate-400">平均驗票核銷率</p>
-              <h3 className="text-xl font-black text-slate-900">{checkInRate.toFixed(1)} <span className="text-xs font-normal text-slate-400">%</span></h3>
-            </div>
-            <div className="bg-amber-50 text-amber-600 p-2.5 rounded-xl border border-amber-100 shrink-0">
-              <TrendingUp size={18} />
-            </div>
+          <div className="bg-emerald-50 text-emerald-600 p-2.5 rounded-xl border border-emerald-100 shrink-0">
+            <Wallet size={18} />
           </div>
         </div>
-      )}
+
+        <div className="p-5 bg-white border border-slate-200 rounded-2xl shadow-xs flex items-center justify-between">
+          <div className="space-y-1">
+            <p className="text-[10px] uppercase font-bold text-slate-400">已售出票券量</p>
+            <h3 className="text-xl font-black text-slate-900">{safeStats.totalTicketsSold} <span className="text-xs font-normal text-slate-400">張</span></h3>
+          </div>
+          <div className="bg-blue-50 text-blue-600 p-2.5 rounded-xl border border-blue-100 shrink-0">
+            <Ticket size={18} />
+          </div>
+        </div>
+
+        <div className="p-5 bg-white border border-slate-200 rounded-2xl shadow-xs flex items-center justify-between">
+          <div className="space-y-1">
+            <p className="text-[10px] uppercase font-bold text-slate-400">已核銷入場量</p>
+            <h3 className="text-xl font-black text-slate-900">{safeStats.totalCheckedIn} <span className="text-xs font-normal text-slate-400">人次</span></h3>
+          </div>
+          <div className="bg-teal-50 text-teal-600 p-2.5 rounded-xl border border-teal-100 shrink-0">
+            <CheckCircle size={18} />
+          </div>
+        </div>
+
+        <div className="p-5 bg-white border border-slate-200 rounded-2xl shadow-xs flex items-center justify-between">
+          <div className="space-y-1">
+            <p className="text-[10px] uppercase font-bold text-slate-400">平均驗票核銷率</p>
+            <h3 className="text-xl font-black text-slate-900">{checkInRate.toFixed(1)} <span className="text-xs font-normal text-slate-400">%</span></h3>
+          </div>
+          <div className="bg-amber-50 text-amber-600 p-2.5 rounded-xl border border-amber-100 shrink-0">
+            <TrendingUp size={18} />
+          </div>
+        </div>
+      </div>
 
       {/* Main Stats Charts & Visuals */}
-      {stats && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Revenue Sales Line Chart (Beautiful SVG) */}
-          <div className="lg:col-span-2 bg-white p-5 border border-slate-200 rounded-2xl shadow-xs space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <div className="flex items-center gap-1.5">
-                <BarChart3 size={16} className="text-blue-600" />
-                <span className="text-xs font-bold text-slate-800">近 7 日每日售票金額趨勢 (TWD)</span>
-              </div>
-              <span className="text-[10px] text-slate-400 font-medium">基於安全防篡改資料庫統計</span>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Revenue Sales Line Chart (Beautiful SVG) */}
+        <div className="lg:col-span-2 bg-white p-5 border border-slate-200 rounded-2xl shadow-xs space-y-4">
+          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+            <div className="flex items-center gap-1.5">
+              <BarChart3 size={16} className="text-blue-600" />
+              <span className="text-xs font-bold text-slate-800">近 7 日每日售票金額趨勢 (TWD)</span>
             </div>
-
-            {/* SVG Line Chart */}
-            <div className="h-56 w-full pt-2">
-              <svg className="w-full h-full overflow-visible" viewBox="0 0 500 180">
-                {/* Horizontal Gridlines */}
-                {[0, 0.25, 0.5, 0.75, 1].map((ratio, idx) => (
-                  <line 
-                    key={idx}
-                    x1="30" 
-                    y1={10 + 140 * ratio} 
-                    x2="490" 
-                    y2={10 + 140 * ratio} 
-                    stroke="#f1f5f9" 
-                    strokeWidth="1" 
-                  />
-                ))}
-
-                {/* Plot line */}
-                <path
-                  d={stats.salesTimeline.map((s, idx) => {
-                    const x = 30 + (460 / 6) * idx;
-                    const y = 150 - (140 * (s.revenue / maxRevenue));
-                    return `${idx === 0 ? 'M' : 'L'} ${x} ${y}`;
-                  }).join(" ")}
-                  fill="none"
-                  stroke="#2563eb"
-                  strokeWidth="3"
-                  strokeLinecap="round"
-                />
-
-                {/* Area under line */}
-                <path
-                  d={`${stats.salesTimeline.map((s, idx) => {
-                    const x = 30 + (460 / 6) * idx;
-                    const y = 150 - (140 * (s.revenue / maxRevenue));
-                    return `${idx === 0 ? 'M' : 'L'} ${x} ${y}`;
-                  }).join(" ")} L 490 150 L 30 150 Z`}
-                  fill="url(#blue-glow-gradient)"
-                  opacity="0.08"
-                />
-
-                {/* Plot Dots & Text */}
-                {stats.salesTimeline.map((s, idx) => {
-                  const x = 30 + (460 / 6) * idx;
-                  const y = 150 - (140 * (s.revenue / maxRevenue));
-                  return (
-                    <g key={idx}>
-                      <circle 
-                        cx={x} 
-                        cy={y} 
-                        r="4" 
-                        fill="#2563eb" 
-                        stroke="#ffffff" 
-                        strokeWidth="2" 
-                      />
-                      <text 
-                        x={x} 
-                        y={y - 8} 
-                        textAnchor="middle" 
-                        fontSize="8" 
-                        fill="#64748b" 
-                        fontWeight="bold"
-                        className="font-mono"
-                      >
-                        {s.revenue > 0 ? `NT$${s.revenue}` : ''}
-                      </text>
-                      {/* X Axis Labels */}
-                      <text 
-                        x={x} 
-                        y="166" 
-                        textAnchor="middle" 
-                        fontSize="9" 
-                        fill="#94a3b8" 
-                        fontWeight="600"
-                        className="font-mono"
-                      >
-                        {s.date}
-                      </text>
-                    </g>
-                  );
-                })}
-
-                {/* Gradient Definition */}
-                <defs>
-                  <linearGradient id="blue-glow-gradient" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#2563eb" />
-                    <stop offset="100%" stopColor="#2563eb" stopOpacity="0" />
-                  </linearGradient>
-                </defs>
-              </svg>
-            </div>
+            <span className="text-[10px] text-slate-400 font-medium">基於安全防篡改資料庫統計</span>
           </div>
 
-          {/* Event Check-in Rate Breakdown Bar */}
-          <div className="bg-white p-5 border border-slate-200 rounded-2xl shadow-xs space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <span className="text-xs font-bold text-slate-800">各場次驗票核銷率 breakdown</span>
-              <span className="text-[10px] text-slate-400">席位進度</span>
-            </div>
+          {/* SVG Line Chart */}
+          <div className="h-56 w-full pt-2">
+            <svg className="w-full h-full overflow-visible" viewBox="0 0 500 180">
+              {/* Horizontal Gridlines */}
+              {[0, 0.25, 0.5, 0.75, 1].map((ratio, idx) => (
+                <line 
+                  key={idx}
+                  x1="30" 
+                  y1={10 + 140 * ratio} 
+                  x2="490" 
+                  y2={10 + 140 * ratio} 
+                  stroke="#f1f5f9" 
+                  strokeWidth="1" 
+                />
+              ))}
 
-            <div className="space-y-4 max-h-56 overflow-y-auto pr-1">
-              {stats.checkInRatesByEvent.map(item => {
+              {/* Plot line */}
+              <path
+                d={safeStats.salesTimeline.map((s, idx) => {
+                  const x = 30 + (460 / Math.max(1, safeStats.salesTimeline.length - 1)) * idx;
+                  const y = 150 - (140 * ((s.revenue || 0) / maxRevenue));
+                  return `${idx === 0 ? 'M' : 'L'} ${x} ${y}`;
+                }).join(" ")}
+                fill="none"
+                stroke="#2563eb"
+                strokeWidth="3"
+                strokeLinecap="round"
+              />
+
+              {/* Area under line */}
+              <path
+                d={`${safeStats.salesTimeline.map((s, idx) => {
+                  const x = 30 + (460 / Math.max(1, safeStats.salesTimeline.length - 1)) * idx;
+                  const y = 150 - (140 * ((s.revenue || 0) / maxRevenue));
+                  return `${idx === 0 ? 'M' : 'L'} ${x} ${y}`;
+                }).join(" ")} L 490 150 L 30 150 Z`}
+                fill="url(#blue-glow-gradient)"
+                opacity="0.08"
+              />
+
+              {/* Plot Dots & Text */}
+              {safeStats.salesTimeline.map((s, idx) => {
+                const x = 30 + (460 / Math.max(1, safeStats.salesTimeline.length - 1)) * idx;
+                const y = 150 - (140 * ((s.revenue || 0) / maxRevenue));
+                return (
+                  <g key={idx}>
+                    <circle 
+                      cx={x} 
+                      cy={y} 
+                      r="4" 
+                      fill="#2563eb" 
+                      stroke="#ffffff" 
+                      strokeWidth="2" 
+                    />
+                    <text 
+                      x={x} 
+                      y={y - 8} 
+                      textAnchor="middle" 
+                      fontSize="8" 
+                      fill="#64748b" 
+                      fontWeight="bold"
+                      className="font-mono"
+                    >
+                      {s.revenue > 0 ? `NT$${s.revenue}` : ''}
+                    </text>
+                    {/* X Axis Labels */}
+                    <text 
+                      x={x} 
+                      y="166" 
+                      textAnchor="middle" 
+                      fontSize="9" 
+                      fill="#94a3b8" 
+                      fontWeight="600"
+                      className="font-mono"
+                    >
+                      {s.date}
+                    </text>
+                  </g>
+                );
+              })}
+
+              {/* Gradient Definition */}
+              <defs>
+                <linearGradient id="blue-glow-gradient" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#2563eb" />
+                  <stop offset="100%" stopColor="#2563eb" stopOpacity="0" />
+                </linearGradient>
+              </defs>
+            </svg>
+          </div>
+        </div>
+
+        {/* Event Check-in Rate Breakdown Bar */}
+        <div className="bg-white p-5 border border-slate-200 rounded-2xl shadow-xs space-y-4">
+          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+            <span className="text-xs font-bold text-slate-800">各場次驗票核銷率 breakdown</span>
+            <span className="text-[10px] text-slate-400">席位進度</span>
+          </div>
+
+          <div className="space-y-4 max-h-56 overflow-y-auto pr-1">
+            {safeStats.checkInRatesByEvent.length > 0 ? (
+              safeStats.checkInRatesByEvent.map(item => {
                 const rate = item.total > 0 ? (item.checkedIn / item.total) * 100 : 0;
                 return (
                   <div key={item.eventId} className="space-y-1.5">
@@ -427,11 +457,13 @@ export default function AdminDashboard({ token }: AdminDashboardProps) {
                     </div>
                   </div>
                 );
-              })}
-            </div>
+              })
+            ) : (
+              <p className="text-center py-8 text-xs text-slate-400">目前尚無進行中的活動席位</p>
+            )}
           </div>
         </div>
-      )}
+      </div>
 
       {/* Real-time Verification Log Feed */}
       <div className="bg-white border border-slate-200 rounded-2xl shadow-xs overflow-hidden">
@@ -500,8 +532,8 @@ export default function AdminDashboard({ token }: AdminDashboardProps) {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 font-sans">
-              {stats && stats.recentLogs.length > 0 ? (
-                stats.recentLogs.map(log => {
+              {safeStats.recentLogs.length > 0 ? (
+                safeStats.recentLogs.map(log => {
                   const isSuccess = log.status === 'success';
                   const isDuplicate = log.status === 'duplicate';
                   const isForged = log.status === 'invalid_sig';
@@ -601,12 +633,12 @@ export default function AdminDashboard({ token }: AdminDashboardProps) {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {users.map(u => {
-                        const isDefaultAdmin = u.id.includes('default');
-                        const canDelete = !isDefaultAdmin && u.role !== 'admin';
+                      {users.map((u, idx) => {
+                        const isDefaultAdmin = String(u?.id || '').includes('default') || String(u?.id || '').includes('admin');
+                        const canDelete = !isDefaultAdmin && u?.role !== 'admin';
 
                         return (
-                          <tr key={u.id} className="hover:bg-slate-50/40">
+                          <tr key={u?.id || idx} className="hover:bg-slate-50/40">
                             <td className="py-3 px-3">
                               <p className="font-bold text-slate-800">{u.name}</p>
                               <span className={`inline-block text-[9px] font-bold px-1.5 py-0.5 rounded-sm mt-0.5 ${

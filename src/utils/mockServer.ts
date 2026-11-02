@@ -323,7 +323,7 @@ export async function handleMockApiRequest(url: string, init?: RequestInit): Pro
   // Auth header parsing
   const authHeader = (init?.headers as Record<string, string>)?.[`Authorization`] || (init?.headers as Record<string, string>)?.[`authorization`];
   const token = authHeader ? authHeader.replace(/^Bearer\s+/i, '') : '';
-  const currentUserId = token.startsWith('token_') ? token.replace('token_', '') : '';
+  const currentUserId = token.startsWith('token_') ? token.replace('token_', '') : token;
 
   // 1. /api/settings
   if (pathname === '/api/settings') {
@@ -338,7 +338,7 @@ export async function handleMockApiRequest(url: string, init?: RequestInit): Pro
         updated.demoMode = true; // Lock cannot be overridden if demoLocked
       }
       clientStorage.saveSettings(updated);
-      return { status: 200, body: updated };
+      return { status: 200, body: { ...updated, settings: updated } };
     }
   }
 
@@ -364,9 +364,9 @@ export async function handleMockApiRequest(url: string, init?: RequestInit): Pro
       return { status: 400, body: { error: '用戶不存在或電子郵件錯誤' } };
     }
 
-    // Role check if admin requested
-    if (role === 'admin' && user.role !== UserRole.ADMIN) {
-      return { status: 403, body: { error: '權限不足：此帳號並非管理員角色' } };
+    // Role check if admin/scanner requested
+    if ((role === 'admin' || role === 'scanner') && user.role !== UserRole.ADMIN && user.role !== UserRole.SCANNER) {
+      return { status: 403, body: { error: '權限不足：此帳號並非管理員或驗票員角色' } };
     }
 
     const inputHash = simpleHash(password + user.email.toLowerCase());
@@ -484,7 +484,8 @@ export async function handleMockApiRequest(url: string, init?: RequestInit): Pro
 
   // 8. /api/tickets/purchase
   if (pathname === '/api/tickets/purchase' && method === 'POST') {
-    const { eventId, zone, quantity = 1 } = bodyData;
+    const { eventId, zone, zoneName, quantity = 1 } = bodyData;
+    const chosenZone = zoneName || zone || '標準席';
     const events = clientStorage.getEvents();
     const evt = events.find(e => e.id === eventId);
     if (!evt) {
@@ -510,7 +511,7 @@ export async function handleMockApiRequest(url: string, init?: RequestInit): Pro
         userId: user.id,
         ownerEmail: user.email,
         purchaserEmail: user.email,
-        zone: zone || '標準席',
+        zone: chosenZone,
         seat: `第 ${Math.floor(Math.random() * 20) + 1} 排 ${Math.floor(Math.random() * 30) + 1} 號`,
         price: evt.price,
         status: 'valid',
@@ -687,6 +688,233 @@ export async function handleMockApiRequest(url: string, init?: RequestInit): Pro
         message: '資料庫已完成乾淨清空。所有隨機與測試日誌已重置。'
       }
     };
+  }
+
+  // 13. /api/admin/stats - Complete computation prevents dashboard white screen
+  if (pathname === '/api/admin/stats' && method === 'GET') {
+    const tickets = clientStorage.getTickets();
+    const events = clientStorage.getEvents();
+    const logs = clientStorage.getLogs();
+
+    let totalRevenue = 0;
+    let totalTicketsSold = 0;
+    tickets.forEach(t => {
+      if (t.status !== 'refunded' && t.status !== 'transferred') {
+        totalRevenue += (t.price || 0);
+        totalTicketsSold += 1;
+      }
+    });
+
+    const totalEventsCount = events.length;
+    const totalCheckedIn = tickets.filter(t => t.status === 'checked_in').length;
+
+    // Initialize last 7 days sales timeline
+    const salesTimelineMap: Record<string, { count: number; revenue: number }> = {};
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      const dateStr = d.toISOString().split('T')[0];
+      salesTimelineMap[dateStr] = { count: 0, revenue: 0 };
+    }
+
+    tickets.forEach(t => {
+      if (t.status !== 'refunded' && t.status !== 'transferred' && t.purchasedAt) {
+        const dateStr = t.purchasedAt.split('T')[0];
+        if (salesTimelineMap[dateStr]) {
+          salesTimelineMap[dateStr].count += 1;
+          salesTimelineMap[dateStr].revenue += (t.price || 0);
+        }
+      }
+    });
+
+    const salesTimeline = Object.entries(salesTimelineMap).map(([date, val]) => ({
+      date: date.substring(5), // MM-DD
+      count: val.count,
+      revenue: val.revenue
+    }));
+
+    const checkInRatesByEvent = events.map(evt => {
+      const evtTickets = tickets.filter(t => t.eventId === evt.id && t.status !== 'transferred');
+      const checkedIn = evtTickets.filter(t => t.status === 'checked_in').length;
+      return {
+        eventId: evt.id,
+        title: evt.title.substring(0, 15) + (evt.title.length > 15 ? '...' : ''),
+        checkedIn,
+        total: evtTickets.length
+      };
+    });
+
+    return {
+      status: 200,
+      body: {
+        totalRevenue,
+        totalTicketsSold,
+        totalEventsCount,
+        totalCheckedIn,
+        salesTimeline,
+        checkInRatesByEvent,
+        recentLogs: logs.slice(0, 15)
+      }
+    };
+  }
+
+  // 14. /api/admin/users
+  if (pathname === '/api/admin/users' && method === 'GET') {
+    const users = clientStorage.getUsers();
+    const userList = Object.values(users).map(u => {
+      const { passwordHash, rawPassword, ...safe } = u;
+      return safe;
+    });
+    return { status: 200, body: userList };
+  }
+
+  // 15. /api/admin/clear-logs
+  if (pathname === '/api/admin/clear-logs' && method === 'POST') {
+    clientStorage.saveLogs([]);
+    const tickets = clientStorage.getTickets();
+    tickets.forEach(t => {
+      if (t.status === 'checked_in') {
+        t.status = 'valid';
+        delete t.checkedInAt;
+      }
+    });
+    clientStorage.saveTickets(tickets);
+    return { status: 200, body: { success: true, message: '核銷紀錄已成功清空！' } };
+  }
+
+  // 16. /api/admin/reset
+  if (pathname === '/api/admin/reset' && method === 'POST') {
+    clientStorage.cleanSlate();
+    return { status: 200, body: { success: true, message: '系統展示資料已成功還原重置！' } };
+  }
+
+  // 17. /api/admin/logs/:id (DELETE)
+  if (pathname.startsWith('/api/admin/logs/') && method === 'DELETE') {
+    const logId = pathname.replace('/api/admin/logs/', '');
+    const logs = clientStorage.getLogs();
+    const updated = logs.filter(l => l.id !== logId);
+    clientStorage.saveLogs(updated);
+    return { status: 200, body: { success: true, message: '已移除該筆核銷紀錄' } };
+  }
+
+  // 18a. /api/admin/users/:id/role (POST)
+  if (pathname.startsWith('/api/admin/users/') && pathname.endsWith('/role') && method === 'POST') {
+    const parts = pathname.split('/');
+    const userId = parts[4];
+    const users = clientStorage.getUsers();
+    if (users[userId] && bodyData.role) {
+      users[userId].role = bodyData.role;
+      clientStorage.saveUsers(users);
+      return { status: 200, body: { success: true, message: '角色權限變更成功！' } };
+    }
+    return { status: 404, body: { error: '找不到指定使用者' } };
+  }
+
+  // 18. /api/admin/users/:id (DELETE)
+  if (pathname.startsWith('/api/admin/users/') && method === 'DELETE') {
+    const userId = pathname.replace('/api/admin/users/', '');
+    const users = clientStorage.getUsers();
+    delete users[userId];
+    clientStorage.saveUsers(users);
+    return { status: 200, body: { success: true, message: '使用者帳號已成功刪除！' } };
+  }
+
+  // 19. /api/events/:id/approve or /api/events/:id/reject
+  if (pathname.includes('/approve') || pathname.includes('/reject')) {
+    const events = clientStorage.getEvents();
+    const parts = pathname.split('/');
+    const eventId = parts[3];
+    const isApprove = pathname.endsWith('/approve');
+    const evt = events.find(e => e.id === eventId);
+    if (evt) {
+      evt.status = isApprove ? 'upcoming' : 'cancelled';
+      clientStorage.saveEvents(events);
+    }
+    return { status: 200, body: { success: true, message: isApprove ? '活動已核准上架' : '活動已否決退回' } };
+  }
+
+  // 20. /api/tickets/transfer
+  if (pathname === '/api/tickets/transfer' && method === 'POST') {
+    const { ticketCode, ticketId, receiverEmail } = bodyData;
+    const tickets = clientStorage.getTickets();
+    const tix = tickets.find(t => (ticketId && t.id === ticketId) || (ticketCode && t.ticketCode === ticketCode));
+    if (!tix) {
+      return { status: 404, body: { error: '查無指定欲轉贈之票券' } };
+    }
+    if (!receiverEmail) {
+      return { status: 400, body: { error: '請輸入接收人之電子信箱' } };
+    }
+    tix.ownerEmail = receiverEmail.trim().toLowerCase();
+    tix.isGifted = true;
+    tix.history.push(`轉贈至 ${receiverEmail.trim().toLowerCase()} (${new Date().toLocaleTimeString('zh-TW')})`);
+    clientStorage.saveTickets(tickets);
+    return { status: 200, body: { success: true, message: `票券已成功轉贈給 ${receiverEmail}` } };
+  }
+
+  // 21. /api/auth/update
+  if (pathname === '/api/auth/update' && method === 'POST') {
+    const { name, phone } = bodyData;
+    const users = clientStorage.getUsers();
+    const user = users[currentUserId] || users['usr-admin'] || users['usr-cust'];
+    if (user) {
+      if (name) user.name = name.trim();
+      if (phone !== undefined) user.phone = phone.trim();
+      clientStorage.saveUsers(users);
+      const { passwordHash, rawPassword, ...safe } = user;
+      return { status: 200, body: { success: true, user: safe } };
+    }
+    return { status: 404, body: { error: '找不到用戶資料' } };
+  }
+
+  // 22. /api/auth/change-password
+  if (pathname === '/api/auth/change-password' && method === 'POST') {
+    const { newPassword } = bodyData;
+    const users = clientStorage.getUsers();
+    const user = users[currentUserId] || users['usr-admin'] || users['usr-cust'];
+    if (user) {
+      user.rawPassword = newPassword;
+      user.passwordHash = simpleHash(newPassword + user.email.toLowerCase());
+      clientStorage.saveUsers(users);
+      return { status: 200, body: { success: true, message: '密碼更新成功' } };
+    }
+    return { status: 404, body: { error: '找不到用戶資料' } };
+  }
+
+  // 23. /api/auth/request-delete
+  if (pathname === '/api/auth/request-delete' && method === 'POST') {
+    const users = clientStorage.getUsers();
+    const user = users[currentUserId] || users['usr-admin'] || users['usr-cust'];
+    if (user) {
+      const scheduled = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+      (user as any).deletionScheduledAt = scheduled;
+      clientStorage.saveUsers(users);
+      const { passwordHash, rawPassword, ...safe } = user;
+      return { status: 200, body: { success: true, message: '已預約 7 天後冷靜期刪除', user: safe } };
+    }
+    return { status: 404, body: { error: '找不到用戶資料' } };
+  }
+
+  // 24. /api/auth/cancel-delete
+  if (pathname === '/api/auth/cancel-delete' && method === 'POST') {
+    const users = clientStorage.getUsers();
+    const user = users[currentUserId] || users['usr-admin'] || users['usr-cust'];
+    if (user) {
+      delete (user as any).deletionScheduledAt;
+      clientStorage.saveUsers(users);
+      const { passwordHash, rawPassword, ...safe } = user;
+      return { status: 200, body: { success: true, message: '已取消帳號刪除申請', user: safe } };
+    }
+    return { status: 404, body: { error: '找不到用戶資料' } };
+  }
+
+  // 25. /api/auth/delete-me
+  if (pathname === '/api/auth/delete-me' && method === 'DELETE') {
+    const users = clientStorage.getUsers();
+    if (currentUserId && users[currentUserId]) {
+      delete users[currentUserId];
+      clientStorage.saveUsers(users);
+    }
+    return { status: 200, body: { success: true, message: '帳號已成功註銷並刪除！' } };
   }
 
   // Default fallback
