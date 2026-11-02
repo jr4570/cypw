@@ -55,8 +55,12 @@ export default function UserEvents({ token, onPurchaseSuccess, onLoginRequired }
       setLoading(true);
       const res = await fetch('/api/events');
       if (res.ok) {
-        const data = await res.json();
-        setEvents(data);
+        try {
+          const data = await res.json();
+          setEvents(data);
+        } catch {
+          // ignore
+        }
       }
     } catch (err) {
       console.error("Error fetching events:", err);
@@ -93,7 +97,13 @@ export default function UserEvents({ token, onPurchaseSuccess, onLoginRequired }
         })
       });
 
-      const data = await res.json();
+      let data: any = {};
+      try {
+        data = await res.json();
+      } catch {
+        data = { error: '伺服器回應資料解析失敗' };
+      }
+
       if (!res.ok) {
         throw new Error(data.error || '購票時發生錯誤');
       }
@@ -109,7 +119,12 @@ export default function UserEvents({ token, onPurchaseSuccess, onLoginRequired }
       }, 2500);
 
     } catch (err: any) {
-      setErrorMsg(err.message || '交易失敗，請稍後再試');
+      const msg = err?.message || '交易失敗，請稍後再試';
+      if (msg.includes('pattern') || msg.includes('SyntaxError')) {
+        setErrorMsg('交易資料格式異常，請重試或切換至示範網路。');
+      } else {
+        setErrorMsg(msg);
+      }
     } finally {
       setBuying(false);
     }

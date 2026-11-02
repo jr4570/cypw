@@ -46,17 +46,21 @@ export default function UserWallet({ token }: UserWalletProps) {
         }
       });
       if (res.ok) {
-        const data = await res.json();
-        // If selected ticket status changed during poll, update selected too
-        setTickets(prev => {
-          if (selectedTicket) {
-            const updated = data.find((t: Ticket) => t.id === selectedTicket.id);
-            if (updated && updated.status !== selectedTicket.status) {
-              setSelectedTicket(updated);
+        try {
+          const data = await res.json();
+          // If selected ticket status changed during poll, update selected too
+          setTickets(prev => {
+            if (selectedTicket) {
+              const updated = data.find((t: Ticket) => t.id === selectedTicket.id);
+              if (updated && updated.status !== selectedTicket.status) {
+                setSelectedTicket(updated);
+              }
             }
-          }
-          return data;
-        });
+            return data;
+          });
+        } catch {
+          // ignore
+        }
       }
     } catch (err) {
       console.error("Error fetching wallet tickets:", err);
@@ -93,7 +97,13 @@ export default function UserWallet({ token }: UserWalletProps) {
         })
       });
 
-      const data = await res.json();
+      let data: any = {};
+      try {
+        data = await res.json();
+      } catch {
+        data = { error: '伺服器回應資料解析失敗' };
+      }
+
       if (!res.ok) {
         throw new Error(data.error || '票券轉贈失敗');
       }
@@ -106,7 +116,12 @@ export default function UserWallet({ token }: UserWalletProps) {
       }, 2500);
 
     } catch (err: any) {
-      setTransferError(err.message || '轉贈過程發生異常');
+      const msg = err?.message || '轉贈過程發生異常';
+      if (msg.includes('pattern') || msg.includes('SyntaxError')) {
+        setTransferError('轉贈通訊格式異常，請確認輸入信箱格式正確。');
+      } else {
+        setTransferError(msg);
+      }
     } finally {
       setTransfering(false);
     }

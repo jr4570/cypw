@@ -7,6 +7,8 @@ import React, { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { User, Mail, Lock, Phone, ArrowRight, Sparkles } from 'lucide-react';
 import { UserProfile } from '../types';
+import { cleanErrorMessage } from '../utils/formatError';
+import { apiFetch } from '../utils/apiInterceptor';
 
 interface UserLoginProps {
   onLoginSuccess: (user: UserProfile, token: string) => void;
@@ -32,12 +34,18 @@ export default function UserLogin({ onLoginSuccess, switchToAdmin, hideSwitchToA
   const [demoConfig, setDemoConfig] = useState<any>(DEFAULT_DEMO_CONFIG);
 
   useEffect(() => {
-    fetch('/api/demo/credentials')
-      .then(res => {
-        if (res.ok) return res.json();
-        throw new Error('Using fallback demo config');
+    apiFetch('/api/demo/credentials')
+      .then(async res => {
+        if (res.ok) {
+          try {
+            return await res.json();
+          } catch {
+            return DEFAULT_DEMO_CONFIG;
+          }
+        }
+        return DEFAULT_DEMO_CONFIG;
       })
-      .then(data => setDemoConfig(data))
+      .then(data => setDemoConfig(data || DEFAULT_DEMO_CONFIG))
       .catch(() => setDemoConfig(DEFAULT_DEMO_CONFIG));
   }, []);
 
@@ -52,13 +60,19 @@ export default function UserLogin({ onLoginSuccess, switchToAdmin, hideSwitchToA
       : { email, password, role: 'customer' };
 
     try {
-      const res = await fetch(url, {
+      const res = await apiFetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
 
-      const data = await res.json();
+      let data: any = {};
+      try {
+        data = await res.json();
+      } catch (parseErr) {
+        data = { error: '伺服器回應資料解析失敗' };
+      }
+
       if (!res.ok) {
         throw new Error(data.error || '認證程序發生錯誤');
       }
@@ -68,7 +82,7 @@ export default function UserLogin({ onLoginSuccess, switchToAdmin, hideSwitchToA
         setTimeout(async () => {
           // Auto login after registration
           try {
-            const loginRes = await fetch('/api/auth/login', {
+            const loginRes = await apiFetch('/api/auth/login', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ email, password, role: 'customer' }),
@@ -89,7 +103,7 @@ export default function UserLogin({ onLoginSuccess, switchToAdmin, hideSwitchToA
         onLoginSuccess(data.user, data.token);
       }
     } catch (err: any) {
-      setError(err.message || '連線伺服器失敗');
+      setError(cleanErrorMessage(err, '連線伺服器失敗'));
     } finally {
       setLoading(false);
     }

@@ -19,6 +19,7 @@ import AdminScan from './components/AdminScan';
 import UserFavorites from './components/UserFavorites';
 import UserSettings from './components/UserSettings';
 import SuperAdminSettings from './components/SuperAdminSettings';
+import { apiFetch } from './utils/apiInterceptor';
 
 export default function App() {
   const [role, setRole] = useState<'customer' | 'admin'>(() => {
@@ -119,23 +120,36 @@ export default function App() {
 
   const fetchSystemSettings = async () => {
     try {
-      const res = await fetch('/api/settings');
+      const res = await apiFetch('/api/settings');
+      let data: any = null;
       if (res.ok) {
-        const data = await res.json();
-        const safeData = {
-          ...data,
-          demoMode: data.demoMode !== false,
-          demoLocked: data.demoLocked ?? true
-        };
-        setSystemSettings(safeData);
-        const isRemembered = localStorage.getItem('starpass_remember_demo_agree') === 'true';
-        if (safeData.demoMode && !isRemembered) {
-          setShowDemoPopup(true);
-          setDemoAgreed(false);
-        } else {
-          setShowDemoPopup(false);
-          setDemoAgreed(true);
+        try {
+          data = await res.json();
+        } catch {
+          data = null;
         }
+      }
+      const safeData = data ? {
+        ...data,
+        demoMode: data.demoMode !== false,
+        demoLocked: data.demoLocked ?? true
+      } : {
+        systemName: "程閱安全票務管理平台",
+        systemSlogan: "採用加密驗證防偽核銷的高安全智慧票務系統",
+        contactPhone: "02-2777-6666",
+        demoMode: true,
+        demoLocked: true,
+        requireApproval: false,
+        bannerUrl: "https://images.unsplash.com/photo-1540039155733-5bb30b53aa14?w=1600&auto=format&fit=crop&q=80"
+      };
+      setSystemSettings(safeData);
+      const isRemembered = localStorage.getItem('starpass_remember_demo_agree') === 'true';
+      if (safeData.demoMode && !isRemembered) {
+        setShowDemoPopup(true);
+        setDemoAgreed(false);
+      } else {
+        setShowDemoPopup(false);
+        setDemoAgreed(true);
       }
     } catch (err) {
       console.warn("Could not fetch remote system settings, maintaining default demo mode:", err);
@@ -151,36 +165,50 @@ export default function App() {
 
     // Verify session tokens with server on mount for cross-device data consistency
     if (customerToken) {
-      fetch('/api/auth/me', {
+      apiFetch('/api/auth/me', {
         headers: { 'Authorization': `Bearer ${customerToken}` }
       })
-      .then(res => {
-        if (res.ok) return res.json();
-        throw new Error('Customer session expired');
+      .then(async res => {
+        if (res.ok) {
+          try {
+            return await res.json();
+          } catch {
+            return null;
+          }
+        }
+        return null;
       })
-      .then(freshUser => setCustomerUser(freshUser))
+      .then(freshUser => {
+        if (freshUser) {
+          setCustomerUser(freshUser);
+        }
+      })
       .catch(() => {
-        setCustomerUser(null);
-        setCustomerToken('');
-        localStorage.removeItem('starpass_customerUser');
-        localStorage.removeItem('starpass_customerToken');
+        // Keep existing customer user if offline or network glitch
       });
     }
 
     if (adminToken) {
-      fetch('/api/auth/me', {
+      apiFetch('/api/auth/me', {
         headers: { 'Authorization': `Bearer ${adminToken}` }
       })
-      .then(res => {
-        if (res.ok) return res.json();
-        throw new Error('Admin session expired');
+      .then(async res => {
+        if (res.ok) {
+          try {
+            return await res.json();
+          } catch {
+            return null;
+          }
+        }
+        return null;
       })
-      .then(freshAdmin => setAdminUser(freshAdmin))
+      .then(freshAdmin => {
+        if (freshAdmin) {
+          setAdminUser(freshAdmin);
+        }
+      })
       .catch(() => {
-        setAdminUser(null);
-        setAdminToken('');
-        localStorage.removeItem('starpass_adminUser');
-        localStorage.removeItem('starpass_adminToken');
+        // Keep existing admin user if offline or network glitch
       });
     }
   }, []);
@@ -226,7 +254,7 @@ export default function App() {
       return;
     }
     try {
-      const res = await fetch('/api/auth/delete-me', {
+      const res = await apiFetch('/api/auth/delete-me', {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${customerToken}`

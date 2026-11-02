@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { Html5Qrcode } from 'html5-qrcode';
 import { EventSetting, CheckInLog } from '../types';
+import { cleanErrorMessage } from '../utils/formatError';
 
 interface AdminScanProps {
   token: string;
@@ -230,7 +231,14 @@ export default function AdminScan({ token }: AdminScanProps) {
     setSelectedCameraId('environment');
     lastScannedRef.current = { text: '', time: 0 }; // reset on start
 
+    // Allow DOM node to render if previously hidden
+    await new Promise(r => setTimeout(r, 60));
+
     try {
+      if (!document.getElementById("qr-reader-container")) {
+        throw new Error("相機容器節點尚未就緒，請重試");
+      }
+
       const html5QrCode = new Html5Qrcode("qr-reader-container");
       html5QrCodeInstanceRef.current = html5QrCode;
 
@@ -251,7 +259,7 @@ export default function AdminScan({ token }: AdminScanProps) {
           setTicketCode(decodedText);
           handleVerify(decodedText);
         },
-        (errorMessage) => {
+        (_errorMessage) => {
           // Silence standard capture attempts
         }
       );
@@ -286,7 +294,7 @@ export default function AdminScan({ token }: AdminScanProps) {
               setTicketCode(decodedText);
               handleVerify(decodedText);
             },
-            (errorMessage) => {}
+            (_errorMessage) => {}
           );
           
           try {
@@ -298,10 +306,10 @@ export default function AdminScan({ token }: AdminScanProps) {
           return; // Success on fallback
         }
       } catch (fallbackErr: any) {
-        setCameraError(`相機啟動失敗：請確保此平台已授權本網頁取得相機權限，且連線為 HTTPS 安全加密網址或 localhost 本地測試。錯誤: ${fallbackErr.message || fallbackErr}`);
+        setCameraError(`相機啟動失敗：請確保瀏覽器具備相機使用授權，或使用拍照選圖進行 100% 辨識。提示: ${cleanErrorMessage(fallbackErr, '無法啟動相機模組')}`);
       }
       if (!cameraError) {
-        setCameraError(`相機啟動失敗：請確保此平台已授權本網頁取得相機權限，且連線為 HTTPS 安全加密網址或 localhost 本地測試。錯誤: ${err.message || err}`);
+        setCameraError(`相機啟動失敗：請確保瀏覽器具備相機使用授權，或使用拍照選圖進行 100% 辨識。提示: ${cleanErrorMessage(err, '無法啟動相機模組')}`);
       }
     }
   };
@@ -368,21 +376,25 @@ export default function AdminScan({ token }: AdminScanProps) {
     setScanResult(null);
 
     try {
+      const tempContainer = document.getElementById("qr-file-reader-temp");
+      if (!tempContainer) {
+        throw new Error("解析節點未就緒");
+      }
       const tempScanner = new Html5Qrcode("qr-file-reader-temp");
       const decodedText = await tempScanner.scanFile(file, false);
       setTicketCode(decodedText);
       await handleVerify(decodedText);
       e.target.value = '';
     } catch (err: any) {
-      console.error("File scan failed:", err);
-      setCameraError(`QR Code 辨識失敗：未在此照片中偵測到清晰的 QR 條碼。請確保拍攝之條碼完整、光線充足，或試著調整拍攝角度後再次重試。`);
+      console.warn("File scan warning:", err);
+      setCameraError(`QR Code 辨識提示：照片中未偵測到清晰之二維條碼。請確認條碼平整未反光，或直接使用下方手動輸入票號進行銷帳。`);
     } finally {
       setLoading(false);
     }
   };
 
   const handleVerify = async (codeToVerify?: string) => {
-    const code = codeToVerify || ticketCode;
+    const code = (codeToVerify || ticketCode || '').trim();
     if (!code) {
       alert("請提供欲核銷的電子票號條碼！");
       return;
@@ -401,31 +413,34 @@ export default function AdminScan({ token }: AdminScanProps) {
         body: JSON.stringify({ ticketCode: code })
       });
 
-      const data = await res.json();
+      let data: any = {};
+      try {
+        data = await res.json();
+      } catch (parseErr) {
+        data = { error: '核銷伺服器傳回非預期資料格式' };
+      }
       
       if (res.ok) {
         setScanResult({
           success: true,
           status: 'success',
-          message: data.message,
+          message: data.message || '核銷通過',
           ticketInfo: data.ticketInfo
         });
       } else {
         setScanResult({
           success: false,
           status: data.status || 'not_found',
-          error: data.error,
+          error: data.error || '核銷未通過',
           ticketInfo: data.ticketInfo
         });
       }
-
-
 
     } catch (err: any) {
       setScanResult({
         success: false,
         status: null,
-        error: "連線核銷伺服器失敗，請檢查網路配置。"
+        error: cleanErrorMessage(err, "連線核銷伺服器失敗，請檢查網路配置。")
       });
     } finally {
       setLoading(false);

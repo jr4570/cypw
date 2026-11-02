@@ -7,6 +7,8 @@ import React, { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { ShieldAlert, Mail, Lock, User, ArrowRight, CheckCircle, Sparkles } from 'lucide-react';
 import { UserProfile } from '../types';
+import { cleanErrorMessage } from '../utils/formatError';
+import { apiFetch } from '../utils/apiInterceptor';
 
 interface AdminLoginProps {
   onLoginSuccess: (user: UserProfile, token: string) => void;
@@ -30,12 +32,18 @@ export default function AdminLogin({ onLoginSuccess, switchToUser }: AdminLoginP
   const [demoConfig, setDemoConfig] = useState<any>(DEFAULT_DEMO_CONFIG);
 
   useEffect(() => {
-    fetch('/api/demo/credentials')
-      .then(res => {
-        if (res.ok) return res.json();
-        throw new Error('Using fallback demo config');
+    apiFetch('/api/demo/credentials')
+      .then(async res => {
+        if (res.ok) {
+          try {
+            return await res.json();
+          } catch {
+            return DEFAULT_DEMO_CONFIG;
+          }
+        }
+        return DEFAULT_DEMO_CONFIG;
       })
-      .then(data => setDemoConfig(data))
+      .then(data => setDemoConfig(data || DEFAULT_DEMO_CONFIG))
       .catch(() => setDemoConfig(DEFAULT_DEMO_CONFIG));
   }, []);
 
@@ -50,13 +58,19 @@ export default function AdminLogin({ onLoginSuccess, switchToUser }: AdminLoginP
       : { email, password, role: selectedRole };
 
     try {
-      const res = await fetch(url, {
+      const res = await apiFetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
 
-      const data = await res.json();
+      let data: any = {};
+      try {
+        data = await res.json();
+      } catch (parseErr) {
+        data = { error: '伺服器回應資料解析失敗' };
+      }
+
       if (!res.ok) {
         throw new Error(data.error || '驗證不通過，請檢查輸入');
       }
@@ -65,7 +79,7 @@ export default function AdminLogin({ onLoginSuccess, switchToUser }: AdminLoginP
         setSuccessMsg('管理員帳密建立成功！正在自動登入儀表板...');
         setTimeout(async () => {
           try {
-            const loginRes = await fetch('/api/auth/login', {
+            const loginRes = await apiFetch('/api/auth/login', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ email, password, role: selectedRole }),
@@ -86,7 +100,7 @@ export default function AdminLogin({ onLoginSuccess, switchToUser }: AdminLoginP
         onLoginSuccess(data.user, data.token);
       }
     } catch (err: any) {
-      setError(err.message || '無法連線至驗證伺服器');
+      setError(cleanErrorMessage(err, '無法連線至驗證伺服器'));
     } finally {
       setLoading(false);
     }
